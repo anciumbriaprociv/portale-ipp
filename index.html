@@ -281,6 +281,7 @@ footer { max-width: 720px; margin: 0 auto; padding: 10px 20px 30px; font-size: 1
   <p style="margin:10px 0 0;"><button type="button" class="btn-sec btn-small" id="btnGps">Usa la mia posizione</button> <span class="hint" style="display:inline">se sei davanti all’edificio</span></p>
   <div id="map" role="application" aria-label="Mappa per indicare l’edificio"></div>
   <p class="coords" id="coords">Nessuna posizione indicata: tocca la mappa sull’edificio.</p>
+  <p id="gmapsWrap" hidden style="margin:-4px 0 14px;"><a id="gmapsLink" target="_blank" rel="noopener">Controlla la posizione su Google Maps</a> <span class="hint" style="display:inline">(si apre in una nuova scheda)</span></p>
   <div class="field" data-field="lat"><div class="err"></div></div>
   <div class="field" data-field="posizioneConfermata">
     <label class="choice"><input type="checkbox" name="posizioneConfermata" id="posizioneConfermata"> <span>Confermo che il segnaposto indica l’edificio per cui chiedo il sopralluogo</span></label>
@@ -9012,15 +9013,19 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     } else marker.setLatLng([lat, lon]);
     if (zoom) map.setView([lat, lon], zoom);
     $('#coords').textContent = `Posizione: lat ${state.lat.toFixed(6)}, lon ${state.lon.toFixed(6)}. Se non è esatta, trascina il segnaposto.`;
+    $('#gmapsLink').href = `https://www.google.com/maps/search/?api=1&query=${state.lat.toFixed(6)},${state.lon.toFixed(6)}`;
+    $('#gmapsWrap').hidden = false;
     showErrors({}, $('#stepMap'));
   }
   function initMap() {
     if (map) { setTimeout(() => map.invalidateSize(), 50); return; }
     if (typeof L === 'undefined') { $('#coords').textContent = 'La mappa non si è caricata: controlla la connessione e ricarica la pagina.'; return; }
     L.Icon.Default.imagePath = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/';
-    map = L.map('map', { center: CONFIG.MAPPA_CENTRO, zoom: CONFIG.MAPPA_ZOOM });
-    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-    const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Immagini © Esri' });
+    // Oltre il livello 19 le mappe non hanno immagini più dettagliate: vengono ingrandite quelle
+    // del livello 19 (maxNativeZoom), utile per collocare il segnaposto con più precisione.
+    map = L.map('map', { center: CONFIG.MAPPA_CENTRO, zoom: CONFIG.MAPPA_ZOOM, maxZoom: 21 });
+    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 21, maxNativeZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+    const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 21, maxNativeZoom: 19, attribution: 'Immagini © Esri' });
     L.control.layers({ 'Mappa': osm, 'Satellite': sat }, null, { collapsed: false }).addTo(map);
     map.on('click', (e) => setPoint(e.latlng.lat, e.latlng.lng, 'pin su mappa'));
     setTimeout(() => map.invalidateSize(), 50);
