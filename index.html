@@ -257,6 +257,13 @@ footer { max-width: 720px; margin: 0 auto; padding: 10px 20px 30px; font-size: 1
 <section class="step" data-title="L’immobile">
   <h2>L’immobile da verificare</h2>
   <p class="intro">Indica dove si trova l’edificio per cui chiedi il sopralluogo.</p>
+  <div class="note" id="eventoUnico" hidden></div>
+  <div class="field" data-field="evento" id="eventoBox" hidden>
+    <div class="label">Dopo quale evento hai riscontrato i danni?</div>
+    <span class="hint">Se le lesioni sono comparse o peggiorate dopo più eventi, scegli l’ultima voce.</span>
+    <div class="choices" id="eventoChoices"></div>
+    <div class="err"></div>
+  </div>
   <div class="row c2">
     <div class="field" data-field="immComune"><label for="immComune">Comune</label><span id="immComuneWrap"></span><div class="err"></div></div>
     <div class="field" data-field="immProv"><label for="immProv">Provincia</label><input type="text" id="immProv" name="immProv" class="upper" maxlength="2"><div class="err"></div></div>
@@ -405,9 +412,9 @@ const CONFIG = {
   // URL della distribuzione Apps Script (Esegui il deployment > Gestisci distribuzioni), termina con /exec
   WEBHOOK_URL: 'https://script.google.com/macros/s/AKfycbwGoeI2iUUO3Bsk-vncgR33bnv1Fok_DPNQFm7vK4B8RJVKQ2nso8FHE_9PtlQgevY6/exec',
   ENTE: 'Protezione Civile',
-  // Evento di riferimento: stampato nelle caselle "Riferimento Evento" del modello (formato AAAA-MM-GG)
-  DATA_EVENTO: '2026-11-10',
-  DESCRIZIONE_EVENTO: 'Sisma del 10 novembre 2026',
+  // Gli eventi calamitosi si gestiscono nella scheda EVENTI del Foglio Google.
+  // Facoltativo: titolo fisso in testata (vuoto = descrizione degli eventi attivi)
+  DESCRIZIONE_EVENTO: '',
   VERIFICA_EMAIL: true,              // deve coincidere con CONFIG.VERIFICA_EMAIL nell'Apps Script
   CONSENTI_DOWNLOAD_PDF: false,      // true = il cittadino può scaricare subito il PDF compilato
   // Comuni colpiti dall'evento: compaiono nel menu a tendina "Comune dell'immobile".
@@ -8733,7 +8740,7 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const form = $('#form');
-  const state = { step: 0, token: null, verifiedEmail: null, lat: null, lon: null, metodoLoc: '', submissionId: null, pdfBytes: null, dirty: false, sent: false };
+  const state = { eventi: [], eventiStato: 'caricamento', step: 0, token: null, verifiedEmail: null, lat: null, lon: null, metodoLoc: '', submissionId: null, pdfBytes: null, dirty: false, sent: false };
 
   // ---------- costruzione dinamica ----------
   $('#ente').textContent = CONFIG.ENTE;
@@ -8920,6 +8927,9 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     });
     ['codiceFiscale', 'propCF', 'provNascita', 'residProv', 'immProv', 'propProv', 'allegato'].forEach((k) => { d[k] = (d[k] || '').toUpperCase().replace(/\s/g, ''); });
     d.lat = state.lat; d.lon = state.lon; d.metodoLoc = state.metodoLoc;
+    const ev = eventoScelto(d);
+    d.eventoChiave = state.eventi.length === 1 ? state.eventi[0].k : (d.evento || '');
+    d.dataEvento = ev ? ev.data : '';
     if (d.qualita === 'Proprietario') d.richiedenteDiverso = 'No';
     return d;
   }
@@ -8962,6 +8972,10 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     const errors = {};
     const visibleFields = $$('.field', scope).filter((f) => !f.closest('[hidden]')).map((f) => f.dataset.field);
     visibleFields.forEach((k) => { if (all[k]) errors[k] = all[k]; });
+    if (scope.contains($('#eventoBox')) && !$('#eventoBox').hidden) {
+      if (state.eventiStato === 'errore') errors.evento = 'Non è stato possibile caricare l’elenco degli eventi: controlla la connessione e premi “Riprova”.';
+      else if (state.eventi.length > 1 && !d.evento) errors.evento = 'Scegli l’evento a cui si riferiscono i danni';
+    }
     if (scope.id === 'stepEmail') {
       if (d.email && d.email.toLowerCase() !== (d.emailConferma || '').toLowerCase()) errors.emailConferma = 'Le due email non coincidono';
       if (CONFIG.VERIFICA_EMAIL && !errors.email && !errors.emailConferma && state.verifiedEmail !== d.email.toLowerCase()) {
@@ -9133,6 +9147,7 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     html += sec('Immobile', stepOf('immNomeVia'), [
       ['Indirizzo', `${d.immTipoVia} ${d.immNomeVia} ${d.immCivico}`], ['Comune', `${d.immComune} (${d.immProv})`],
       ['Frazione/località', d.immFrazione], ['CAP', d.immCAP], ['Denominazione', d.immDenominazione],
+      ['Evento', state.eventi.length ? (eventoScelto(d) ? etichettaEvento(eventoScelto(d)) : 'Più eventi / non so') : ''],
       ['Dati catastali', catasto(d)]]);
     html += sec('Posizione', idx('#stepMap'), [['Coordinate', d.lat != null ? `${d.lat.toFixed(6)}, ${d.lon.toFixed(6)}` : 'non indicata']]);
     html += sec('Caratteristiche', stepOf('proprieta'), [
@@ -9190,7 +9205,6 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     try {
       const d = collect();
       delete d.emailConferma;
-      d.dataEvento = CONFIG.DATA_EVENTO;
       d.immProvNome = PROVINCE[d.immProv] || d.immProv;
       d.dataInvio = new Date().toISOString();
       for (let tentativo = 0; tentativo < 3; tentativo++) {
@@ -9213,6 +9227,7 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     } catch (e) {
       // Il Submission ID resta lo stesso: un nuovo tentativo non crea doppioni
       msg.textContent = `${e.message} Puoi premere di nuovo “Invia l’istanza”: non verrà registrata due volte.`;
+      if (/evento/i.test(e.message)) caricaEventi();
       msg.hidden = false;
       msg.scrollIntoView({ block: 'center' });
     } finally {
@@ -9229,8 +9244,55 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
   $('#btnNew').addEventListener('click', () => { state.dirty = false; location.reload(); });
   window.addEventListener('beforeunload', (e) => { if (state.dirty && !state.sent) { e.preventDefault(); e.returnValue = ''; } });
 
+  // ---------- eventi calamitosi (scheda EVENTI del Foglio) ----------
+  function etichettaEvento(e) {
+    return `${e.tipo} del ${fmtDate(e.data)}${e.ora ? ' ore ' + e.ora : ''}${e.descrizione ? ' – ' + e.descrizione : ''}`;
+  }
+  function eventoScelto(d) {
+    if (state.eventi.length === 1) return state.eventi[0];
+    return state.eventi.find((e) => e.k === d.evento) || null;
+  }
+  function mostraEventi() {
+    const box = $('#eventoBox'), unico = $('#eventoUnico');
+    box.hidden = true; unico.hidden = true;
+    const n = state.eventi.length;
+    let titolo = CONFIG.DESCRIZIONE_EVENTO;
+    if (state.eventiStato === 'errore') {
+      box.hidden = false;
+      $('#eventoChoices').innerHTML = '<button type="button" class="btn-sec btn-small" id="btnEventiRetry">Riprova a caricare gli eventi</button>';
+      $('#btnEventiRetry').addEventListener('click', caricaEventi);
+    } else if (n === 1) {
+      unico.hidden = false;
+      unico.textContent = 'Evento di riferimento: ' + etichettaEvento(state.eventi[0]);
+      titolo = titolo || etichettaEvento(state.eventi[0]);
+    } else if (n > 1) {
+      box.hidden = false;
+      const lab = {}; const vals = state.eventi.map((e) => { lab[e.k] = etichettaEvento(e); return e.k; });
+      vals.push('NON_SO'); lab.NON_SO = 'Danni comparsi o aggravati dopo più eventi / non so';
+      const prima = (form.querySelector('input[name="evento"]:checked') || {}).value;
+      radios($('#eventoChoices'), 'evento', vals, lab);
+      if (prima) { const r = form.querySelector(`input[name="evento"][value="${CSS.escape(prima)}"]`); if (r) r.checked = true; }
+      titolo = titolo || (state.eventi[0].tipo + ': ' + n + ' eventi in corso');
+    }
+    $('#evento').textContent = titolo || '';
+    $('#evento').hidden = !titolo;
+  }
+  async function caricaEventi() {
+    state.eventiStato = 'caricamento';
+    try {
+      const r = await api({ action: 'eventi' }, 20000);
+      if (!r.ok) throw new Error(r.errore);
+      state.eventi = r.eventi || [];
+      state.eventiStato = 'ok';
+    } catch (e) {
+      state.eventiStato = 'errore';
+    }
+    mostraEventi();
+  }
+
   refreshConditional();
   go(0);
+  caricaEventi();
 })();
 </script>
 </body>
