@@ -101,6 +101,7 @@ button { font: inherit; font-size: 18px; font-weight: 700; border-radius: 8px; p
 .search-row input { flex: 1; }
 .results { list-style: none; margin: 6px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .results:empty { display: none; }
+.results li.msg { padding: 10px 12px; font-size: 16px; color: var(--ink-soft); }
 .results button { width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: #fff; font-weight: 400; font-size: 16px; min-height: 46px; }
 .results li:last-child button { border-bottom: 0; }
 .coords { font-size: 15px; color: var(--ink-soft); }
@@ -115,6 +116,11 @@ button { font: inherit; font-size: 18px; font-weight: 700; border-radius: 8px; p
 .done-id .big { font-size: 28px; font-weight: 700; letter-spacing: 1px; }
 .done-id img { max-width: 100%; height: 70px; margin-top: 8px; }
 .hp { position: absolute; left: -5000px; }
+.req { color: var(--error); font-weight: 700; margin-left: 2px; }
+.req-note { font-size: 15px; color: var(--ink-soft); margin: -10px 0 18px; }
+.progress-inner { align-items: center; }
+.btn-listen { font-size: 15px; padding: 4px 12px; min-height: 36px; border-width: 1.5px; white-space: nowrap; }
+.btn-listen[aria-pressed="true"] { background: var(--ink); color: #fff; }
 .cf-tools { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-top: 8px; }
 .cf-msg { font-size: 15px; margin-top: 6px; }
 .cf-msg.ok { color: var(--ok); font-weight: 600; }
@@ -145,7 +151,8 @@ footer { max-width: 720px; margin: 0 auto; padding: 10px 20px 30px; font-size: 1
 </header>
 
 <div class="progress" aria-live="polite">
-  <div class="progress-inner"><span class="where" id="where"></span><span class="count" id="count"></span></div>
+  <div class="progress-inner"><span class="where" id="where"></span><span class="count" id="count"></span>
+    <button type="button" class="btn-sec btn-listen" id="btnListen" aria-pressed="false" hidden>🔊 Ascolta</button></div>
   <div class="rail"><div id="railbar"></div></div>
 </div>
 
@@ -9002,6 +9009,7 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
 
   // ---------- navigazione ----------
   function go(i) {
+    if (typeof fermaLettura === 'function') fermaLettura();
     steps.forEach((s, n) => s.classList.toggle('active', n === i));
     state.step = i;
     const s = steps[i];
@@ -9109,26 +9117,59 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     const d = collect();
     $('#searchBox').value = [`${d.immTipoVia} ${d.immNomeVia} ${d.immCivico}`.trim(), d.immComune].filter(Boolean).join(', ');
   }
+  // Ricerca indirizzo: OpenStreetMap Nominatim e, se non risponde o rifiuta (limite di richieste,
+  // frequente quando molti cittadini cercano dalla stessa rete del COC), il servizio Photon.
+  let ricercaInCorso = false;
+  async function cercaNominatim(q) {
+    const url = 'https:\/\/nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=it&accept-language=it&q=' + encodeURIComponent(q);
+    const res = await fetchConTimeout(url, 8000);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    return d.map((r) => ({ nome: r.display_name, lat: parseFloat(r.lat), lon: parseFloat(r.lon) }));
+  }
+  async function cercaPhoton(q) {
+    const url = 'https:\/\/photon.komoot.io/api/?limit=5&lang=it&bbox=6.6,35.4,18.6,47.1&q=' + encodeURIComponent(q);
+    const res = await fetchConTimeout(url, 8000);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    return (d.features || []).filter((f) => !f.properties.countrycode || f.properties.countrycode === 'IT').map((f) => {
+      const p = f.properties;
+      const via = [p.street || p.name, p.housenumber].filter(Boolean).join(' ');
+      return { nome: [via, p.district, p.city || p.town || p.village, p.county].filter(Boolean).join(', '),
+               lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+    });
+  }
+  async function fetchConTimeout(url, ms) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try { return await fetch(url, { signal: ctrl.signal }); } finally { clearTimeout(t); }
+  }
   async function search() {
     const q = $('#searchBox').value.trim();
     const list = $('#results');
-    list.innerHTML = '';
-    if (q.length < 3) return;
+    const avviso = (testo) => { list.innerHTML = ''; const li = document.createElement('li'); li.className = 'msg'; li.textContent = testo; list.appendChild(li); };
+    if (q.length < 3) { avviso('Scrivi almeno via e Comune, poi premi Cerca.'); return; }
+    if (ricercaInCorso) return;
+    ricercaInCorso = true;
     $('#btnSearch').disabled = true;
-    try {
-      const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=it&accept-language=it&q=' + encodeURIComponent(q);
-      const res = await (await fetch(url)).json();
-      if (!res.length) { list.innerHTML = '<li><button type="button" disabled>Nessun risultato: prova solo con via e Comune, oppure tocca direttamente la mappa.</button></li>'; return; }
-      res.forEach((r) => {
-        const li = document.createElement('li');
-        const b = document.createElement('button');
-        b.type = 'button'; b.textContent = r.display_name;
-        b.addEventListener('click', () => { list.innerHTML = ''; setPoint(parseFloat(r.lat), parseFloat(r.lon), 'ricerca indirizzo', 18); });
-        li.appendChild(b); list.appendChild(li);
-      });
-    } catch (e) {
-      list.innerHTML = '<li><button type="button" disabled>Ricerca non disponibile al momento: tocca direttamente la mappa.</button></li>';
-    } finally { $('#btnSearch').disabled = false; }
+    avviso('Ricerca in corso…');
+    let risultati = null;
+    try { risultati = await cercaNominatim(q); } catch (e) { risultati = null; }
+    if (!risultati || !risultati.length) {
+      try { const alt = await cercaPhoton(q); if (alt.length || risultati === null) risultati = alt; } catch (e) { /* entrambi non disponibili */ }
+    }
+    ricercaInCorso = false;
+    $('#btnSearch').disabled = false;
+    if (risultati === null) { avviso('Ricerca non disponibile in questo momento: riprova tra qualche secondo, oppure sposta la mappa e tocca l’edificio.'); return; }
+    if (!risultati.length) { avviso('Nessun risultato: prova solo con via e Comune (senza civico), oppure tocca direttamente la mappa.'); return; }
+    list.innerHTML = '';
+    risultati.forEach((r) => {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = r.nome;
+      b.addEventListener('click', () => { list.innerHTML = ''; setPoint(r.lat, r.lon, 'ricerca indirizzo', 18); });
+      li.appendChild(b); list.appendChild(li);
+    });
   }
   $('#btnSearch').addEventListener('click', search);
   $('#searchBox').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
@@ -9304,6 +9345,93 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     mostraEventi();
   }
 
+  // ---------- campi obbligatori: asterisco visibile in anticipo ----------
+  const OBBLIGATORI = ['consensoPrivacy', 'email', 'emailConferma', 'cognome', 'nome', 'luogoNascita', 'provNascita', 'dataNascita',
+    'codiceFiscale', 'residComune', 'residProv', 'residIndirizzo', 'residCivico', 'residCAP', 'qualita', 'qualitaAltro',
+    'evento', 'immComune', 'immProv', 'immTipoVia', 'immNomeVia', 'immCivico', 'posizioneConfermata',
+    'tipologia', 'tipologiaAltro', 'composizione', 'uso', 'usoAltro', 'proprieta', 'utilizzata',
+    'residente', 'nucleo', 'abitazionePrincipale', 'richiedenteDiverso', 'propNome', 'propCognome'];
+  function segnaObbligatori() {
+    OBBLIGATORI.forEach((k) => {
+      const f = form.querySelector(`.field[data-field="${k}"]`);
+      if (!f || f.querySelector('.req')) return;
+      const etichetta = f.querySelector(':scope > label:not(.choice), :scope > .label') || f.querySelector('.choice > span');
+      if (!etichetta) return;
+      const star = document.createElement('span');
+      star.className = 'req'; star.textContent = '*'; star.setAttribute('aria-hidden', 'true');
+      const hintInterno = etichetta.querySelector('.hint');
+      if (hintInterno) etichetta.insertBefore(star, hintInterno); else etichetta.appendChild(star);
+      f.querySelectorAll('input, select, textarea').forEach((el) => el.setAttribute('aria-required', 'true'));
+    });
+    const rec = Array.from(form.querySelectorAll('.group-title')).find((g) => g.textContent.trim() === 'Recapiti');
+    if (rec && !rec.querySelector('.req')) { const st = document.createElement('span'); st.className = 'req'; st.textContent = '*'; rec.appendChild(st); }
+    steps.forEach((st) => {
+      if (st.id === 'stepSummary' || st.id === 'stepDone' || st.querySelector('.req-note')) return;
+      if (!st.querySelector('.req')) return;
+      const nota = document.createElement('p');
+      nota.className = 'req-note';
+      nota.innerHTML = 'I campi con <span class="req" aria-hidden="true">*</span> sono obbligatori.';
+      const intro = st.querySelector('.intro');
+      if (intro) intro.after(nota); else st.querySelector('h2').after(nota);
+    });
+  }
+
+  // ---------- lettura ad alta voce della sezione ----------
+  const voce = 'speechSynthesis' in window ? window.speechSynthesis : null;
+  function testoDaLeggere(sezione) {
+    const visibile = (el) => !el.closest('[hidden]') && el.offsetParent !== null;
+    const pulito = (el) => el.textContent.replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+    const frasi = [];
+    const h2 = sezione.querySelector('h2'); if (h2) frasi.push(pulito(h2) + '.');
+    sezione.querySelectorAll(':scope > p, :scope > .label, .note, .privacy').forEach((el) => {
+      if (!visibile(el)) return;
+      if (el.querySelector('button') && !pulito(el).replace(/\S*(Calcola|Cerca|Usa|Invia)\S*/g, '').trim()) return;
+      frasi.push(el.classList.contains('req-note') ? 'I campi con asterisco sono obbligatori.' : pulito(el));
+    });
+    sezione.querySelectorAll('.group-title, .field').forEach((el) => {
+      if (!visibile(el)) return;
+      if (el.classList.contains('group-title')) { frasi.push(pulito(el) + '.'); return; }
+      const lab = el.querySelector(':scope > label:not(.choice), :scope > .label');
+      const opzioni = Array.from(el.querySelectorAll('.choice > span')).map(pulito).filter(Boolean);
+      const obbl = el.querySelector('.req') ? ', obbligatorio' : '';
+      if (lab) frasi.push(pulito(lab) + obbl + '.');
+      const hint = el.querySelector(':scope > .hint'); if (hint && visibile(hint)) frasi.push(pulito(hint));
+      if (opzioni.length > 1) frasi.push('Puoi scegliere tra: ' + opzioni.join('; ') + '.');
+      else if (opzioni.length === 1 && !lab) frasi.push(opzioni[0] + obbl + '.');
+      const errore = el.querySelector('.err'); if (errore && errore.textContent.trim() && el.classList.contains('invalid')) frasi.push('Attenzione: ' + pulito(errore));
+    });
+    return frasi.filter(Boolean);
+  }
+  function fermaLettura() {
+    if (!voce) return;
+    voce.cancel();
+    $('#btnListen').setAttribute('aria-pressed', 'false');
+    $('#btnListen').textContent = '🔊 Ascolta';
+  }
+  function leggiSezione() {
+    if (!voce) return;
+    if (voce.speaking || voce.pending) { fermaLettura(); return; }
+    const frasi = testoDaLeggere(steps[state.step]);
+    const voci = voce.getVoices();
+    const italiana = voci.find((v) => /^it(-|_|$)/i.test(v.lang)) || null;
+    // una frase per volta: alcuni browser interrompono le letture lunghe
+    frasi.forEach((f, i) => {
+      const u = new SpeechSynthesisUtterance(f);
+      u.lang = 'it-IT'; u.rate = 0.95;
+      if (italiana) u.voice = italiana;
+      if (i === frasi.length - 1) u.onend = () => fermaLettura();
+      voce.speak(u);
+    });
+    $('#btnListen').setAttribute('aria-pressed', 'true');
+    $('#btnListen').textContent = '⏹ Interrompi';
+  }
+  if (voce) {
+    $('#btnListen').hidden = false;
+    $('#btnListen').addEventListener('click', leggiSezione);
+    voce.getVoices();
+  }
+
+  segnaObbligatori();
   refreshConditional();
   go(0);
   caricaEventi();
