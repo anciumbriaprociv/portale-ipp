@@ -8354,6 +8354,8 @@ Teulada|CI|L154`.split('\n').map((r) => { const [n, p, c] = r.split('|'); return
 function chiaveRicerca(s) {
   return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[’'`]/g, "'").replace(/\s+/g, ' ').trim();
 }
+// Stati esteri (e alcuni Stati non più esistenti) per il luogo di nascita: provincia "EE"
+const STATI_ESTERI = `Afghanistan;Albania;Algeria;Andorra;Angola;Antigua e Barbuda;Arabia Saudita;Argentina;Armenia;Australia;Austria;Azerbaigian;Bahamas;Bahrein;Bangladesh;Barbados;Belgio;Belize;Benin;Bhutan;Bielorussia;Bolivia;Bosnia ed Erzegovina;Botswana;Brasile;Brunei;Bulgaria;Burkina Faso;Burundi;Cambogia;Camerun;Canada;Capo Verde;Ciad;Cile;Cina;Cipro;Città del Vaticano;Colombia;Comore;Congo;Corea del Nord;Corea del Sud;Costa d'Avorio;Costa Rica;Croazia;Cuba;Danimarca;Dominica;Ecuador;Egitto;El Salvador;Emirati Arabi Uniti;Eritrea;Estonia;Eswatini;Etiopia;Figi;Filippine;Finlandia;Francia;Gabon;Gambia;Georgia;Germania;Ghana;Giamaica;Giappone;Gibuti;Giordania;Grecia;Grenada;Guatemala;Guinea;Guinea-Bissau;Guinea Equatoriale;Guyana;Haiti;Honduras;India;Indonesia;Iran;Iraq;Irlanda;Islanda;Isole Marshall;Isole Salomone;Israele;Kazakistan;Kenya;Kirghizistan;Kiribati;Kosovo;Kuwait;Laos;Lesotho;Lettonia;Libano;Liberia;Libia;Liechtenstein;Lituania;Lussemburgo;Macedonia del Nord;Madagascar;Malawi;Malaysia;Maldive;Mali;Malta;Marocco;Mauritania;Mauritius;Messico;Micronesia;Moldavia;Monaco;Mongolia;Montenegro;Mozambico;Myanmar;Namibia;Nauru;Nepal;Nicaragua;Niger;Nigeria;Norvegia;Nuova Zelanda;Oman;Paesi Bassi;Pakistan;Palau;Palestina;Panama;Papua Nuova Guinea;Paraguay;Perù;Polonia;Portogallo;Qatar;Regno Unito;Repubblica Ceca;Repubblica Centrafricana;Repubblica Democratica del Congo;Repubblica Dominicana;Romania;Ruanda;Russia;Saint Kitts e Nevis;Saint Lucia;Saint Vincent e Grenadine;Samoa;San Marino;São Tomé e Príncipe;Senegal;Serbia;Seychelles;Sierra Leone;Singapore;Siria;Slovacchia;Slovenia;Somalia;Spagna;Sri Lanka;Stati Uniti d'America;Sudafrica;Sudan;Sudan del Sud;Suriname;Svezia;Svizzera;Tagikistan;Taiwan;Tanzania;Thailandia;Timor Est;Togo;Tonga;Trinidad e Tobago;Tunisia;Turchia;Turkmenistan;Tuvalu;Ucraina;Uganda;Ungheria;Uruguay;Uzbekistan;Vanuatu;Venezuela;Vietnam;Yemen;Zambia;Zimbabwe;Hong Kong;Macao;Porto Rico;Groenlandia;Gibilterra;Polinesia Francese;Nuova Caledonia;Cecoslovacchia;Jugoslavia;Unione Sovietica (URSS);Repubblica Democratica Tedesca;Serbia e Montenegro`.split(';').map((n) => ({ n, p: 'EE', k: chiaveRicerca(n), estero: true }));
 const TIPI_VIA = ['Via', 'Viale', 'Piazza', 'Piazzale', 'Corso', 'Largo', 'Vicolo', 'Vocabolo', 'Località', 'Strada', 'Strada provinciale', 'Strada statale', 'Contrada', 'Borgo', 'Salita', 'Frazione'];
 // ==============================================================
 
@@ -8821,7 +8823,8 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
   }
 
   // ---------- suggerimenti dei Comuni mentre si scrive ----------
-  function suggerisciComuni(input, provInput) {
+  function suggerisciComuni(input, provInput, conEstero) {
+    const ELENCO = conEstero ? STATI_ESTERI.concat(COMUNI_IT) : COMUNI_IT;
     input.setAttribute('autocomplete', 'off');
     input.setAttribute('role', 'combobox');
     input.setAttribute('aria-autocomplete', 'list');
@@ -8853,7 +8856,7 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
       const q = chiaveRicerca(input.value);
       if (q.length < 2) return chiudi();
       const inizio = [], parola = [];
-      for (const c of COMUNI_IT) {
+      for (const c of ELENCO) {
         if (c.k.startsWith(q)) inizio.push(c);
         else if (c.k.includes(' ' + q) || c.k.includes("'" + q) || c.k.includes('-' + q)) parola.push(c);
         if (inizio.length >= 8) break;
@@ -8864,7 +8867,7 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
         const li = document.createElement('li');
         li.setAttribute('role', 'option'); li.id = list.id + i;
         li.innerHTML = '<span></span> <span class="prov"></span>';
-        li.firstChild.textContent = c.n; li.lastChild.textContent = '(' + c.p + ')';
+        li.firstChild.textContent = c.n; li.lastChild.textContent = c.estero ? '(Stato estero)' : '(' + c.p + ')';
         li.addEventListener('mousedown', (ev) => { ev.preventDefault(); scegli(c); });
         list.appendChild(li);
       });
@@ -8883,7 +8886,8 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
       chiudi();
       // Scritto per intero senza scegliere dalla lista: si normalizza il nome e si completa la provincia
       const k = chiaveRicerca(input.value);
-      const uguali = COMUNI_IT.filter((c) => c.k === k);
+      let uguali = COMUNI_IT.filter((c) => c.k === k);
+      if (!uguali.length && conEstero) uguali = STATI_ESTERI.filter((c) => c.k === k);
       if (uguali.length) input.value = uguali[0].n;
       // provincia completata solo se il nome è univoco (es. esistono due Comuni "Castro")
       if (uguali.length === 1 && provInput) provInput.value = uguali[0].p;
@@ -8931,7 +8935,7 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
   });
   $('#codiceFiscale').addEventListener('input', (e) => { if (e.isTrusted) { $('#cfMsg').textContent = ''; } });
 
-  suggerisciComuni($('#luogoNascita'), $('#provNascita'));
+  suggerisciComuni($('#luogoNascita'), $('#provNascita'), true);
   suggerisciComuni($('#residComune'), $('#residProv'));
   suggerisciComuni($('#propComune'), $('#propProv'));
   if (!CONFIG.COMUNI_COLPITI.length) suggerisciComuni($('#immComune'), $('#immProv'));
@@ -9764,6 +9768,11 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
 "Province",
 "Province",
 "Provincia"
+],
+"(Stato estero)": [
+"(foreign country)",
+"(pays étranger)",
+"(país extranjero)"
 ],
 "EE se estero": [
 "EE if abroad",
