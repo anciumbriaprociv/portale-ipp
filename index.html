@@ -37,6 +37,11 @@ a { color: var(--focus); }
 .band { background: var(--ink); color: #fff; padding: 14px 20px; }
 .band-inner { max-width: 720px; margin: 0 auto; }
 .band .ente { font-size: 15px; opacity: .85; margin: 0; }
+.band-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.lang-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; margin: 0; }
+.lang-pick select { font-size: 15px; min-height: 36px; padding: 2px 8px; border-radius: 6px; border: 1.5px solid #fff; background: #fff; color: var(--ink); width: auto; }
+.lang-note { font-size: 14px; margin: 8px 0 0; padding: 6px 10px; border-radius: 6px; background: rgba(255,255,255,.14); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .band h1 { font-size: 26px; line-height: 1.15; margin: 2px 0 0; font-weight: 700; }
 .band .evento { margin: 6px 0 0; font-size: 15px; color: #ffe08a; }
 
@@ -144,9 +149,11 @@ footer { max-width: 720px; margin: 0 auto; padding: 10px 20px 30px; font-size: 1
 </div>
 <header class="band">
   <div class="band-inner">
-    <p class="ente" id="ente"></p>
+    <div class="band-top"><p class="ente" id="ente"></p>
+      <label class="lang-pick" data-noi18n><span aria-hidden="true">🌐</span><span class="sr-only">Lingua / Language / Langue / Idioma</span><select id="lingua"></select></label></div>
     <h1>Istanza di sopralluogo per edifici pubblici e privati</h1>
     <p class="evento" id="evento" hidden></p>
+    <p class="lang-note" id="linguaNota" data-noi18n hidden></p>
   </div>
 </header>
 
@@ -9178,7 +9185,7 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     $('#coords').textContent = 'Ricerca della posizione in corso…';
     navigator.geolocation.getCurrentPosition(
       (p) => { setPoint(p.coords.latitude, p.coords.longitude, 'posizione GPS', 18);
-        $('#coords').textContent += ` Precisione circa ${Math.round(p.coords.accuracy)} m.`; },
+        $('#coords').textContent = `Posizione: lat ${state.lat.toFixed(6)}, lon ${state.lon.toFixed(6)}. Se non è esatta, trascina il segnaposto. Precisione circa ${Math.round(p.coords.accuracy)} m.`; },
       () => { $('#coords').textContent = 'Posizione non disponibile: consenti l’accesso alla posizione o tocca la mappa.'; },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   });
@@ -9355,7 +9362,10 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     OBBLIGATORI.forEach((k) => {
       const f = form.querySelector(`.field[data-field="${k}"]`);
       if (!f || f.querySelector('.req')) return;
-      const etichetta = f.querySelector(':scope > label:not(.choice), :scope > .label') || f.querySelector('.choice > span');
+      // domanda senza etichetta propria (es. "In qualità di"): l'asterisco va sul titolo che la precede
+      const titoloPrima = f.previousElementSibling && f.previousElementSibling.classList.contains('group-title') ? f.previousElementSibling : null;
+      const etichetta = f.querySelector(':scope > label:not(.choice), :scope > .label') ||
+        (f.querySelectorAll('.choice').length > 1 && titoloPrima) || f.querySelector('.choice > span');
       if (!etichetta) return;
       const star = document.createElement('span');
       star.className = 'req'; star.textContent = '*'; star.setAttribute('aria-hidden', 'true');
@@ -9385,22 +9395,43 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     const h2 = sezione.querySelector('h2'); if (h2) frasi.push(pulito(h2) + '.');
     sezione.querySelectorAll(':scope > p, :scope > .label, .note, .privacy').forEach((el) => {
       if (!visibile(el)) return;
-      if (el.querySelector('button') && !pulito(el).replace(/\S*(Calcola|Cerca|Usa|Invia)\S*/g, '').trim()) return;
-      frasi.push(el.classList.contains('req-note') ? 'I campi con asterisco sono obbligatori.' : pulito(el));
+      if (el.querySelector('button')) { const c = el.cloneNode(true); c.querySelectorAll('button').forEach((b) => b.remove()); if (!pulito(c)) return; }
+      frasi.push(el.classList.contains('req-note') ? T('I campi con asterisco sono obbligatori.') : pulito(el));
     });
     sezione.querySelectorAll('.group-title, .field').forEach((el) => {
       if (!visibile(el)) return;
       if (el.classList.contains('group-title')) { frasi.push(pulito(el) + '.'); return; }
       const lab = el.querySelector(':scope > label:not(.choice), :scope > .label');
       const opzioni = Array.from(el.querySelectorAll('.choice > span')).map(pulito).filter(Boolean);
-      const obbl = el.querySelector('.req') ? ', obbligatorio' : '';
+      const obbl = el.querySelector('.req') ? T(', obbligatorio') : '';
       if (lab) frasi.push(pulito(lab) + obbl + '.');
       const hint = el.querySelector(':scope > .hint'); if (hint && visibile(hint)) frasi.push(pulito(hint));
-      if (opzioni.length > 1) frasi.push('Puoi scegliere tra: ' + opzioni.join('; ') + '.');
+      if (opzioni.length > 1) frasi.push(T('Puoi scegliere tra: ') + opzioni.join('; ') + '.');
       else if (opzioni.length === 1 && !lab) frasi.push(opzioni[0] + obbl + '.');
-      const errore = el.querySelector('.err'); if (errore && errore.textContent.trim() && el.classList.contains('invalid')) frasi.push('Attenzione: ' + pulito(errore));
+      const errore = el.querySelector('.err'); if (errore && errore.textContent.trim() && el.classList.contains('invalid')) frasi.push(T('Attenzione: ') + pulito(errore));
     });
     return frasi.filter(Boolean);
+  }
+  const T = (s) => (window.ippT ? window.ippT(s) : s);
+  // voce più naturale disponibile sul dispositivo, preferibilmente femminile
+  const VOCI_FEMMINILI = /elsa|isabella|alice|federica|paola|elisa|carla|bianca|serena|sonia|libby|jenny|aria|samantha|karen|moira|kate|hazel|susan|zira|emma|ava|allison|natasha|clara|denise|am[eé]lie|audrey|aur[eé]lie|hortense|julie|marie|vivienne|eloise|virginie|elvira|helena|laura|m[oó]nica|paulina|luc[ií]a|sabina|dalia|marisol|conchita|ximena|female|femmin|femme|mujer/i;
+  const VOCI_MASCHILI = /diego|cosimo|luca|giorgio|benigno|calimero|david|mark|guy|ryan|george|james|daniel|thomas|paul|henri|claude|r[eé]mi|nicolas|pablo|jorge|alvaro|[aá]lvaro|ra[uú]l|juan|carlos|enrique|alex|fred|oliver|arthur|male\b|maschil|homme|hombre/i;
+  function scegliVoce(lang) {
+    const pref = lang.slice(0, 2).toLowerCase();
+    const voci = voce.getVoices().filter((v) => String(v.lang).toLowerCase().replace('_', '-').startsWith(pref));
+    let migliore = null, punti = -1e9;
+    voci.forEach((v) => {
+      const n = v.name || ''; let p = 0;
+      if (/natural|neural|enhanced|premium|online|wavenet/i.test(n)) p += 40;
+      if (/google/i.test(n)) p += 20;
+      if (VOCI_FEMMINILI.test(n)) p += 30;
+      if (VOCI_MASCHILI.test(n) && !/female/i.test(n)) p -= 50;
+      if (/compact|espeak|robot/i.test(n)) p -= 30;
+      if (String(v.lang).replace('_', '-').toLowerCase() === lang.toLowerCase()) p += 8;
+      if (v.default) p += 2;
+      if (p > punti) { punti = p; migliore = v; }
+    });
+    return migliore;
   }
   function fermaLettura() {
     if (!voce) return;
@@ -9412,13 +9443,13 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     if (!voce) return;
     if (voce.speaking || voce.pending) { fermaLettura(); return; }
     const frasi = testoDaLeggere(steps[state.step]);
-    const voci = voce.getVoices();
-    const italiana = voci.find((v) => /^it(-|_|$)/i.test(v.lang)) || null;
+    const lang = window.ippVoceLingua ? window.ippVoceLingua() : 'it-IT';
+    const scelta = scegliVoce(lang);
     // una frase per volta: alcuni browser interrompono le letture lunghe
     frasi.forEach((f, i) => {
       const u = new SpeechSynthesisUtterance(f);
-      u.lang = 'it-IT'; u.rate = 0.95;
-      if (italiana) u.voice = italiana;
+      u.lang = lang; u.rate = 0.95; u.pitch = 1.05;
+      if (scelta) u.voice = scelta;
       if (i === frasi.length - 1) u.onend = () => fermaLettura();
       voce.speak(u);
     });
@@ -9429,12 +9460,1425 @@ const IPP_TEMPLATE_B64 = 'JVBERi0xLjMKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aC
     $('#btnListen').hidden = false;
     $('#btnListen').addEventListener('click', leggiSezione);
     voce.getVoices();
+    if ('onvoiceschanged' in voce) voce.onvoiceschanged = () => voce.getVoices();
+    window.addEventListener('ipp-lingua', fermaLettura);
   }
 
   segnaObbligatori();
   refreshConditional();
   go(0);
   caricaEventi();
+})();
+</script>
+<script>
+/* ---------- lingue del modulo (italiano, inglese, francese, spagnolo) ----------
+   Il modulo è scritto in italiano; qui ogni testo visibile viene tradotto al volo.
+   I dati inviati (valori dei campi, PDF ufficiale, email) restano in italiano.
+   Per aggiungere una lingua: una colonna in DIZIONARIO e MODELLI, una voce in LINGUE. */
+(function () {
+  'use strict';
+  const LINGUE = {
+    it: { nome: 'Italiano', voce: 'it-IT', titolo: 'Istanza di sopralluogo – Modello IPP' },
+    en: { nome: 'English', voce: 'en-GB', nota: 'Translation for your convenience: the official request (IPP form), the receipt and the emails are in Italian. Names and addresses stay as they are.' },
+    fr: { nome: 'Français', voce: 'fr-FR', nota: 'Traduction pour votre commodité : la demande officielle (formulaire IPP), l’accusé de réception et les e-mails sont en italien. Les noms et adresses restent tels quels.' },
+    es: { nome: 'Español', voce: 'es-ES', nota: 'Traducción para su comodidad: la solicitud oficial (formulario IPP), el justificante y los correos están en italiano. Los nombres y direcciones se mantienen tal cual.' },
+  };
+  const COLONNA = { en: 0, fr: 1, es: 2 };
+  const DIZIONARIO = {
+"Istanza di sopralluogo per edifici pubblici e privati": [
+"Request for a building inspection (public and private buildings)",
+"Demande d’inspection des bâtiments publics et privés",
+"Solicitud de inspección de edificios públicos y privados"
+],
+"Istanza di sopralluogo – Modello IPP": [
+"Building inspection request – IPP form",
+"Demande d’inspection – Formulaire IPP",
+"Solicitud de inspección – Formulario IPP"
+],
+"Protezione Civile": [
+"Civil Protection",
+"Protection civile",
+"Protección Civil"
+],
+"🔊 Ascolta": [
+"🔊 Listen",
+"🔊 Écouter",
+"🔊 Escuchar"
+],
+"⏹ Interrompi": [
+"⏹ Stop",
+"⏹ Arrêter",
+"⏹ Detener"
+],
+"Indietro": [
+"Back",
+"Retour",
+"Atrás"
+],
+"Avanti": [
+"Next",
+"Suivant",
+"Siguiente"
+],
+"Invia l’istanza": [
+"Submit the request",
+"Envoyer la demande",
+"Enviar la solicitud"
+],
+"Invio in corso…": [
+"Sending…",
+"Envoi en cours…",
+"Enviando…"
+],
+"Modifica": [
+"Edit",
+"Modifier",
+"Editar"
+],
+"(facoltativo)": [
+"(optional)",
+"(facultatif)",
+"(opcional)"
+],
+"(facoltativi)": [
+"(optional)",
+"(facultatives)",
+"(opcionales)"
+],
+"I campi con": [
+"Fields marked with",
+"Les champs marqués d’un",
+"Los campos con"
+],
+"sono obbligatori.": [
+"are required.",
+"sont obligatoires.",
+"son obligatorios."
+],
+"I campi con asterisco sono obbligatori.": [
+"Fields marked with an asterisk are required.",
+"Les champs marqués d’un astérisque sont obligatoires.",
+"Los campos con asterisco son obligatorios."
+],
+"Per assistenza rivolgiti al Centro Operativo Comunale del tuo Comune.": [
+"For assistance, contact the Municipal Operations Centre (C.O.C.) of your municipality.",
+"Pour toute aide, adressez-vous au Centre opérationnel communal (C.O.C.) de votre commune.",
+"Para recibir ayuda, diríjase al Centro Operativo Municipal (C.O.C.) de su municipio."
+],
+"Puoi scegliere tra:": [
+"You can choose from: ",
+"Vous pouvez choisir parmi : ",
+"Puede elegir entre: "
+],
+", obbligatorio": [
+", required",
+", obligatoire",
+", obligatorio"
+],
+"Attenzione:": [
+"Warning: ",
+"Attention : ",
+"Atención: "
+],
+"Prima di iniziare": [
+"Before you start",
+"Avant de commencer",
+"Antes de empezar"
+],
+"Verifica email": [
+"Email verification",
+"Vérification de l’e-mail",
+"Verificación del correo"
+],
+"I tuoi dati": [
+"Your details",
+"Vos données",
+"Sus datos"
+],
+"L’immobile": [
+"The building",
+"Le bâtiment",
+"El inmueble"
+],
+"Posizione sulla mappa": [
+"Location on the map",
+"Position sur la carte",
+"Ubicación en el mapa"
+],
+"Caratteristiche": [
+"Characteristics",
+"Caractéristiques",
+"Características"
+],
+"Dichiarazioni": [
+"Declarations",
+"Déclarations",
+"Declaraciones"
+],
+"Riepilogo e invio": [
+"Summary and submission",
+"Récapitulatif et envoi",
+"Resumen y envío"
+],
+"Istanza inviata": [
+"Request submitted",
+"Demande envoyée",
+"Solicitud enviada"
+],
+"Con questo modulo chiedi al Comune una verifica dei danni e dell’agibilità di un immobile dopo l’evento. Ci vogliono circa 10 minuti.": [
+"With this form you ask the Municipality to inspect a building for damage and safety after the event. It takes about 10 minutes.",
+"Avec ce formulaire, vous demandez à la commune de vérifier les dommages et l’habitabilité d’un bâtiment après l’événement. Cela prend environ 10 minutes.",
+"Con este formulario usted solicita al Ayuntamiento una inspección de los daños y de la habitabilidad de un inmueble después del evento. Se tarda unos 10 minutos."
+],
+"Tieni a portata di mano": [
+"Have ready",
+"Gardez à portée de main",
+"Tenga a mano"
+],
+"il tuo codice fiscale e un indirizzo email che puoi consultare subito;": [
+"your Italian tax code (codice fiscale) and an email address you can check right away;",
+"votre code fiscal italien (codice fiscale) et une adresse e-mail que vous pouvez consulter tout de suite ;",
+"su código fiscal italiano (codice fiscale) y una dirección de correo que pueda consultar enseguida;"
+],
+"l’indirizzo dell’immobile e, se li hai, i dati catastali (foglio, particella, subalterno);": [
+"the address of the building and, if you have them, the land registry details (sheet, parcel, sub-unit);",
+"l’adresse du bâtiment et, si vous les avez, les références cadastrales (feuille, parcelle, sous-unité) ;",
+"la dirección del inmueble y, si los tiene, los datos catastrales (hoja, parcela, subalterno);"
+],
+"i dati del proprietario, se non sei tu.": [
+"the owner’s details, if the owner is not you.",
+"les coordonnées du propriétaire, si ce n’est pas vous.",
+"los datos del propietario, si no es usted."
+],
+"Dopo l’invio riceverai una ricevuta via email. Per completare la pratica dovrai presentarti al Centro Operativo Comunale (C.O.C.) con un documento d’identità per firmare l’istanza.": [
+"After submitting you will receive a receipt by email. To complete the request you must go to the Municipal Operations Centre (C.O.C.) with an identity document to sign it.",
+"Après l’envoi, vous recevrez un accusé de réception par e-mail. Pour finaliser la demande, vous devrez vous présenter au Centre opérationnel communal (C.O.C.) avec une pièce d’identité pour la signer.",
+"Después del envío recibirá un justificante por correo electrónico. Para completar el trámite deberá acudir al Centro Operativo Municipal (C.O.C.) con un documento de identidad para firmar la solicitud."
+],
+"Informativa sul trattamento dei dati": [
+"Privacy notice",
+"Information sur le traitement des données",
+"Información sobre el tratamiento de datos"
+],
+"Titolare del trattamento": [
+"Data controller",
+"Responsable du traitement",
+"Responsable del tratamiento"
+],
+": il Comune destinatario dell’istanza. I dati sono raccolti per la gestione dell’emergenza e l’organizzazione dei sopralluoghi di agibilità (rilevante interesse pubblico), sono trattati da personale autorizzato del C.O.C. e delle squadre tecniche e conservati per il tempo necessario alla gestione dell’evento.": [
+": the Municipality receiving the request. Data are collected to manage the emergency and organise safety inspections (substantial public interest), are processed by authorised staff of the C.O.C. and of the technical teams, and are kept for as long as needed to manage the event.",
+" : la commune destinataire de la demande. Les données sont collectées pour la gestion de l’urgence et l’organisation des inspections (intérêt public important), sont traitées par le personnel autorisé du C.O.C. et des équipes techniques et conservées le temps nécessaire à la gestion de l’événement.",
+": el Ayuntamiento destinatario de la solicitud. Los datos se recogen para la gestión de la emergencia y la organización de las inspecciones (interés público esencial), son tratados por personal autorizado del C.O.C. y de los equipos técnicos y se conservan durante el tiempo necesario para la gestión del evento."
+],
+"Testo provvisorio: sostituirlo con l’informativa approvata dal DPO dell’ente.": [
+"Provisional text: to be replaced with the notice approved by the authority’s DPO.",
+"Texte provisoire : à remplacer par l’information approuvée par le DPO de l’organisme.",
+"Texto provisional: debe sustituirse por la información aprobada por el DPD de la entidad."
+],
+"Ho letto l’informativa e autorizzo il trattamento dei dati per le finalità di gestione dell’emergenza": [
+"I have read the privacy notice and authorise the processing of my data for emergency management purposes",
+"J’ai lu l’information et j’autorise le traitement des données aux fins de la gestion de l’urgence",
+"He leído la información y autorizo el tratamiento de los datos para la gestión de la emergencia"
+],
+"Il tuo indirizzo email": [
+"Your email address",
+"Votre adresse e-mail",
+"Su dirección de correo electrónico"
+],
+"Ti inviamo un codice di 6 cifre per confermare che l’indirizzo è tuo. Lo useremo per mandarti la ricevuta e la copia dell’istanza.": [
+"We will send you a 6-digit code to confirm the address is yours. We will use it to send you the receipt and the copy of your request.",
+"Nous vous envoyons un code à 6 chiffres pour confirmer que l’adresse est bien la vôtre. Nous l’utiliserons pour vous envoyer l’accusé de réception et la copie de la demande.",
+"Le enviaremos un código de 6 cifras para confirmar que la dirección es suya. La usaremos para enviarle el justificante y la copia de la solicitud."
+],
+"Lo useremo per mandarti la ricevuta e la copia dell’istanza. Controlla che sia scritto correttamente.": [
+"We will use it to send you the receipt and the copy of your request. Check that it is spelled correctly.",
+"Nous l’utiliserons pour vous envoyer l’accusé de réception et la copie de la demande. Vérifiez qu’elle est correctement écrite.",
+"La usaremos para enviarle el justificante y la copia de la solicitud. Compruebe que esté bien escrita."
+],
+"Email": [
+"Email",
+"E-mail",
+"Correo electrónico"
+],
+"Ripeti l’email": [
+"Repeat email",
+"Répétez l’e-mail",
+"Repita el correo"
+],
+"Inviami il codice": [
+"Send me the code",
+"Envoyez-moi le code",
+"Envíenme el código"
+],
+"Codice ricevuto via email": [
+"Code received by email",
+"Code reçu par e-mail",
+"Código recibido por correo"
+],
+"Controlla anche la cartella spam. Il codice vale 15 minuti.": [
+"Also check your spam folder. The code is valid for 15 minutes.",
+"Vérifiez aussi le dossier spam. Le code est valable 15 minutes.",
+"Revise también la carpeta de spam. El código es válido durante 15 minutos."
+],
+"Verifica il codice": [
+"Verify the code",
+"Vérifier le code",
+"Verificar el código"
+],
+"Invia un nuovo codice": [
+"Send a new code",
+"Envoyer un nouveau code",
+"Enviar un código nuevo"
+],
+"Email verificata.": [
+"Email verified.",
+"E-mail vérifié.",
+"Correo verificado."
+],
+"Cambia email": [
+"Change email",
+"Changer d’e-mail",
+"Cambiar correo"
+],
+"Sono i dati di chi presenta l’istanza.": [
+"These are the details of the person submitting the request.",
+"Ce sont les données de la personne qui présente la demande.",
+"Son los datos de quien presenta la solicitud."
+],
+"Cognome": [
+"Surname",
+"Nom",
+"Apellidos"
+],
+"Nome": [
+"First name",
+"Prénom",
+"Nombre"
+],
+"Comune (o Stato estero) di nascita": [
+"Municipality (or foreign country) of birth",
+"Commune (ou pays étranger) de naissance",
+"Municipio (o país extranjero) de nacimiento"
+],
+"Provincia": [
+"Province",
+"Province",
+"Provincia"
+],
+"EE se estero": [
+"EE if abroad",
+"EE si à l’étranger",
+"EE si es en el extranjero"
+],
+"Data di nascita": [
+"Date of birth",
+"Date de naissance",
+"Fecha de nacimiento"
+],
+"Sesso": [
+"Sex",
+"Sexe",
+"Sexo"
+],
+"(serve solo per calcolare il codice fiscale)": [
+"(only used to calculate the tax code)",
+"(sert uniquement à calculer le code fiscal)",
+"(solo sirve para calcular el código fiscal)"
+],
+"Maschile": [
+"Male",
+"Masculin",
+"Masculino"
+],
+"Femminile": [
+"Female",
+"Féminin",
+"Femenino"
+],
+"Codice fiscale": [
+"Tax code (codice fiscale)",
+"Code fiscal (codice fiscale)",
+"Código fiscal (codice fiscale)"
+],
+"Calcola dai dati inseriti": [
+"Calculate from the details entered",
+"Calculer à partir des données saisies",
+"Calcular con los datos introducidos"
+],
+"Verifica sul sito dell’Agenzia delle Entrate": [
+"Check on the Italian Revenue Agency website",
+"Vérifier sur le site de l’Agenzia delle Entrate",
+"Comprobar en la web de la Agenzia delle Entrate"
+],
+"Residenza": [
+"Residence",
+"Résidence",
+"Residencia"
+],
+"Comune": [
+"Municipality",
+"Commune",
+"Municipio"
+],
+"Indirizzo": [
+"Address",
+"Adresse",
+"Dirección"
+],
+"N. civico": [
+"House no.",
+"N° de rue",
+"N.º"
+],
+"CAP": [
+"Postcode",
+"Code postal",
+"Código postal"
+],
+"Recapiti": [
+"Contacts",
+"Coordonnées",
+"Contacto"
+],
+"Indica almeno un numero: la squadra tecnica ti chiamerà per concordare il sopralluogo.": [
+"Give at least one number: the technical team will call you to arrange the inspection.",
+"Indiquez au moins un numéro : l’équipe technique vous appellera pour convenir de l’inspection.",
+"Indique al menos un número: el equipo técnico le llamará para acordar la inspección."
+],
+"Cellulare": [
+"Mobile phone",
+"Portable",
+"Móvil"
+],
+"Telefono fisso": [
+"Landline",
+"Téléphone fixe",
+"Teléfono fijo"
+],
+"Telefono": [
+"Phone",
+"Téléphone",
+"Teléfono"
+],
+"Presenti l’istanza in qualità di": [
+"You are submitting the request as",
+"Vous présentez la demande en qualité de",
+"Presenta la solicitud en calidad de"
+],
+"Proprietario": [
+"Owner",
+"Propriétaire",
+"Propietario"
+],
+"Usufruttuario": [
+"Usufructuary",
+"Usufruitier",
+"Usufructuario"
+],
+"Titolare di diritto di proprietà": [
+"Holder of a property right",
+"Titulaire d’un droit de propriété",
+"Titular de un derecho de propiedad"
+],
+"Inquilino": [
+"Tenant",
+"Locataire",
+"Inquilino"
+],
+"Amministratore del condominio": [
+"Building manager",
+"Syndic de copropriété",
+"Administrador de la comunidad"
+],
+"Altro": [
+"Other",
+"Autre",
+"Otro"
+],
+"Specifica": [
+"Please specify",
+"Précisez",
+"Especifique"
+],
+"L’immobile da verificare": [
+"The building to be inspected",
+"Le bâtiment à vérifier",
+"El inmueble que se debe inspeccionar"
+],
+"Indica dove si trova l’edificio per cui chiedi il sopralluogo.": [
+"Tell us where the building to be inspected is located.",
+"Indiquez où se trouve le bâtiment pour lequel vous demandez l’inspection.",
+"Indique dónde se encuentra el edificio para el que solicita la inspección."
+],
+"Dopo quale evento hai riscontrato i danni?": [
+"After which event did you notice the damage?",
+"Après quel événement avez-vous constaté les dommages ?",
+"¿Después de qué evento observó los daños?"
+],
+"Se le lesioni sono comparse o peggiorate dopo più eventi, scegli l’ultima voce.": [
+"If the cracks appeared or worsened after more than one event, choose the last option.",
+"Si les fissures sont apparues ou se sont aggravées après plusieurs événements, choisissez la dernière option.",
+"Si las grietas aparecieron o empeoraron después de varios eventos, elija la última opción."
+],
+"Danni comparsi o aggravati dopo più eventi / non so": [
+"Damage appeared or worsened after several events / I don’t know",
+"Dommages apparus ou aggravés après plusieurs événements / je ne sais pas",
+"Daños aparecidos o agravados tras varios eventos / no lo sé"
+],
+"Frazione o località": [
+"Hamlet or locality",
+"Hameau ou lieu-dit",
+"Pedanía o localidad"
+],
+"Tipo": [
+"Type",
+"Type",
+"Tipo"
+],
+"Scegli…": [
+"Choose…",
+"Choisir…",
+"Elija…"
+],
+"Scegli il Comune…": [
+"Choose the municipality…",
+"Choisissez la commune…",
+"Elija el municipio…"
+],
+"Nome della via": [
+"Street name",
+"Nom de la rue",
+"Nombre de la calle"
+],
+"Nome dell’edificio": [
+"Building name",
+"Nom du bâtiment",
+"Nombre del edificio"
+],
+"Dati catastali": [
+"Land registry details",
+"Références cadastrales",
+"Datos catastrales"
+],
+"Li trovi nell’atto di proprietà, nella visura o nel contratto d’affitto. Se non li conosci, lascia vuoto.": [
+"You can find them in the deed, the land registry extract or the rental contract. If you don’t know them, leave blank.",
+"Vous les trouverez dans l’acte de propriété, l’extrait cadastral ou le bail. Si vous ne les connaissez pas, laissez vide.",
+"Los encontrará en la escritura, en la consulta catastral o en el contrato de alquiler. Si no los conoce, déjelo en blanco."
+],
+"Foglio": [
+"Sheet",
+"Feuille",
+"Hoja"
+],
+"Allegato": [
+"Annex",
+"Annexe",
+"Anexo"
+],
+"Particella": [
+"Parcel",
+"Parcelle",
+"Parcela"
+],
+"2ª particella": [
+"2nd parcel",
+"2e parcelle",
+"2.ª parcela"
+],
+"3ª particella": [
+"3rd parcel",
+"3e parcelle",
+"3.ª parcela"
+],
+"Subalterno": [
+"Sub-unit",
+"Sous-unité",
+"Subalterno"
+],
+"2° subalterno": [
+"2nd sub-unit",
+"2e sous-unité",
+"2.º subalterno"
+],
+"es. Garibaldi": [
+"e.g. Garibaldi",
+"ex. Garibaldi",
+"p. ej. Garibaldi"
+],
+"es. Condominio Aurora, Scuola Media": [
+"e.g. Aurora apartment block, middle school",
+"ex. Résidence Aurora, collège",
+"p. ej. Edificio Aurora, escuela secundaria"
+],
+"Indica l’edificio sulla mappa": [
+"Mark the building on the map",
+"Indiquez le bâtiment sur la carte",
+"Indique el edificio en el mapa"
+],
+"La posizione esatta permette alle squadre di organizzare i sopralluoghi e trovare l’edificio. Cerca l’indirizzo, poi trascina il segnaposto sopra il tetto dell’edificio. Con “Satellite” (in alto a destra sulla mappa) lo riconosci più facilmente.": [
+"The exact location lets the teams plan the inspections and find the building. Search for the address, then drag the marker onto the roof of the building. With “Satellite” (top right of the map) it is easier to recognise.",
+"La position exacte permet aux équipes d’organiser les inspections et de trouver le bâtiment. Recherchez l’adresse, puis faites glisser le repère sur le toit du bâtiment. Avec « Satellite » (en haut à droite de la carte), vous le reconnaîtrez plus facilement.",
+"La ubicación exacta permite a los equipos organizar las inspecciones y encontrar el edificio. Busque la dirección y arrastre el marcador sobre el tejado del edificio. Con «Satellite» (arriba a la derecha del mapa) lo reconocerá más fácilmente."
+],
+"Cerca": [
+"Search",
+"Rechercher",
+"Buscar"
+],
+"Cerca un indirizzo": [
+"Search for an address",
+"Rechercher une adresse",
+"Buscar una dirección"
+],
+"Usa la mia posizione": [
+"Use my location",
+"Utiliser ma position",
+"Usar mi ubicación"
+],
+"se sei davanti all’edificio": [
+"if you are in front of the building",
+"si vous êtes devant le bâtiment",
+"si está delante del edificio"
+],
+"Nessuna posizione indicata: tocca la mappa sull’edificio.": [
+"No location set: tap the building on the map.",
+"Aucune position indiquée : touchez le bâtiment sur la carte.",
+"Ninguna ubicación indicada: toque el edificio en el mapa."
+],
+"Controlla la posizione su Google Maps": [
+"Check the location on Google Maps",
+"Vérifier la position sur Google Maps",
+"Comprobar la ubicación en Google Maps"
+],
+"(si apre in una nuova scheda)": [
+"(opens in a new tab)",
+"(s’ouvre dans un nouvel onglet)",
+"(se abre en una pestaña nueva)"
+],
+"Confermo che il segnaposto indica l’edificio per cui chiedo il sopralluogo": [
+"I confirm that the marker shows the building for which I am requesting the inspection",
+"Je confirme que le repère indique le bâtiment pour lequel je demande l’inspection",
+"Confirmo que el marcador indica el edificio para el que solicito la inspección"
+],
+"Mappa per indicare l’edificio": [
+"Map to mark the building",
+"Carte pour indiquer le bâtiment",
+"Mapa para indicar el edificio"
+],
+"Mappa": [
+"Map",
+"Carte",
+"Mapa"
+],
+"Ricerca in corso…": [
+"Searching…",
+"Recherche en cours…",
+"Buscando…"
+],
+"Ricerca della posizione in corso…": [
+"Finding your location…",
+"Localisation en cours…",
+"Buscando su ubicación…"
+],
+"Scrivi almeno via e Comune, poi premi Cerca.": [
+"Type at least the street and municipality, then press Search.",
+"Saisissez au moins la rue et la commune, puis appuyez sur Rechercher.",
+"Escriba al menos la calle y el municipio y pulse Buscar."
+],
+"Nessun risultato: prova solo con via e Comune (senza civico), oppure tocca direttamente la mappa.": [
+"No results: try with just street and municipality (no house number), or tap the map directly.",
+"Aucun résultat : essayez avec seulement la rue et la commune (sans numéro), ou touchez directement la carte.",
+"Sin resultados: pruebe solo con calle y municipio (sin número) o toque directamente el mapa."
+],
+"Ricerca non disponibile in questo momento: riprova tra qualche secondo, oppure sposta la mappa e tocca l’edificio.": [
+"Search is not available right now: try again in a few seconds, or move the map and tap the building.",
+"Recherche indisponible pour le moment : réessayez dans quelques secondes, ou déplacez la carte et touchez le bâtiment.",
+"La búsqueda no está disponible ahora: inténtelo de nuevo en unos segundos o mueva el mapa y toque el edificio."
+],
+"Posizione non disponibile: consenti l’accesso alla posizione o tocca la mappa.": [
+"Location not available: allow access to your location or tap the map.",
+"Position indisponible : autorisez l’accès à la position ou touchez la carte.",
+"Ubicación no disponible: permita el acceso a la ubicación o toque el mapa."
+],
+"La mappa non si è caricata: controlla la connessione e ricarica la pagina.": [
+"The map did not load: check your connection and reload the page.",
+"La carte ne s’est pas chargée : vérifiez la connexion et rechargez la page.",
+"El mapa no se ha cargado: compruebe la conexión y vuelva a cargar la página."
+],
+"Caratteristiche dell’immobile": [
+"Building characteristics",
+"Caractéristiques du bâtiment",
+"Características del inmueble"
+],
+"Scegli la descrizione più vicina. In caso di dubbio non preoccuparti: i tecnici verificheranno durante il sopralluogo.": [
+"Choose the closest description. If in doubt, don’t worry: the engineers will check during the inspection.",
+"Choisissez la description la plus proche. En cas de doute, ne vous inquiétez pas : les techniciens vérifieront lors de l’inspection.",
+"Elija la descripción más parecida. En caso de duda no se preocupe: los técnicos lo comprobarán durante la inspección."
+],
+"Tipologia": [
+"Type of building",
+"Typologie",
+"Tipología"
+],
+"Edificio ordinario": [
+"Ordinary building",
+"Bâtiment ordinaire",
+"Edificio ordinario"
+],
+"Edificio di grande luce o a struttura prefabbricata": [
+"Large-span or prefabricated building",
+"Bâtiment à grande portée ou préfabriqué",
+"Edificio de gran luz o prefabricado"
+],
+"Altri manufatti non ordinari": [
+"Other non-ordinary structures",
+"Autres ouvrages non ordinaires",
+"Otras construcciones no ordinarias"
+],
+"Specifica il manufatto": [
+"Specify the structure",
+"Précisez l’ouvrage",
+"Especifique la construcción"
+],
+"es. campanile, serbatoio, muro di contenimento": [
+"e.g. bell tower, tank, retaining wall",
+"ex. clocher, réservoir, mur de soutènement",
+"p. ej. campanario, depósito, muro de contención"
+],
+"L’edificio è composto da": [
+"The building consists of",
+"Le bâtiment se compose de",
+"El edificio está compuesto por"
+],
+"Un’unità immobiliare": [
+"One unit",
+"Un seul logement/local",
+"Una unidad inmobiliaria"
+],
+"Più unità immobiliari": [
+"Several units",
+"Plusieurs logements/locaux",
+"Varias unidades inmobiliarias"
+],
+"Uso prevalente": [
+"Main use",
+"Usage principal",
+"Uso principal"
+],
+"Residenziale": [
+"Residential",
+"Résidentiel",
+"Residencial"
+],
+"Servizio pubblico": [
+"Public service",
+"Service public",
+"Servicio público"
+],
+"Commerciale": [
+"Commercial",
+"Commercial",
+"Comercial"
+],
+"Ufficio": [
+"Office",
+"Bureau",
+"Oficina"
+],
+"Produttivo": [
+"Industrial / productive",
+"Productif",
+"Productivo"
+],
+"Specifica l’uso": [
+"Specify the use",
+"Précisez l’usage",
+"Especifique el uso"
+],
+"Proprietà": [
+"Ownership",
+"Propriété",
+"Propiedad"
+],
+"Pubblica": [
+"Public",
+"Publique",
+"Pública"
+],
+"Privata": [
+"Private",
+"Privée",
+"Privada"
+],
+"L’immobile è attualmente utilizzato?": [
+"Is the building currently in use?",
+"Le bâtiment est-il actuellement utilisé ?",
+"¿Se utiliza actualmente el inmueble?"
+],
+"Sì": [
+"Yes",
+"Oui",
+"Sí"
+],
+"No": [
+"No",
+"Non",
+"No"
+],
+"Parzialmente": [
+"Partly",
+"Partiellement",
+"Parcialmente"
+],
+"Ai sensi del D.P.R. 445/2000 dichiari quanto segue.": [
+"Under Presidential Decree 445/2000 you declare the following.",
+"Conformément au D.P.R. 445/2000, vous déclarez ce qui suit.",
+"De conformidad con el D.P.R. 445/2000 declara lo siguiente."
+],
+"Sei residente nell’immobile oggetto dell’istanza?": [
+"Are you a resident of the building concerned?",
+"Résidez-vous dans le bâtiment objet de la demande ?",
+"¿Reside en el inmueble objeto de la solicitud?"
+],
+"Da quante persone è composto il nucleo familiare?": [
+"How many people are in your household?",
+"De combien de personnes se compose le foyer ?",
+"¿Cuántas personas forman la unidad familiar?"
+],
+"L’immobile è la tua abitazione principale?": [
+"Is the building your main residence?",
+"Le bâtiment est-il votre résidence principale ?",
+"¿Es el inmueble su vivienda habitual?"
+],
+"Il proprietario dell’immobile è un’altra persona?": [
+"Is the owner of the building another person?",
+"Le propriétaire du bâtiment est-il une autre personne ?",
+"¿El propietario del inmueble es otra persona?"
+],
+"Sì, indico i suoi dati": [
+"Yes, I will give their details",
+"Oui, j’indique ses coordonnées",
+"Sí, indico sus datos"
+],
+"Dati del proprietario": [
+"Owner’s details",
+"Coordonnées du propriétaire",
+"Datos del propietario"
+],
+"Nome e cognome sono obbligatori, gli altri dati se li conosci. Per un condominio indica l’amministratore o uno dei proprietari.": [
+"Name and surname are required, the other details if you know them. For an apartment block, give the building manager or one of the owners.",
+"Le nom et le prénom sont obligatoires, les autres données si vous les connaissez. Pour une copropriété, indiquez le syndic ou l’un des propriétaires.",
+"Nombre y apellidos son obligatorios; los demás datos, si los conoce. Para una comunidad de propietarios indique el administrador o uno de los propietarios."
+],
+"Comune di residenza": [
+"Municipality of residence",
+"Commune de résidence",
+"Municipio de residencia"
+],
+"Controlla e invia": [
+"Check and submit",
+"Vérifier et envoyer",
+"Revisar y enviar"
+],
+"Verifica i dati. Puoi correggere ogni sezione con “Modifica”.": [
+"Check your details. You can correct each section with “Edit”.",
+"Vérifiez les données. Vous pouvez corriger chaque section avec « Modifier ».",
+"Revise los datos. Puede corregir cada sección con «Editar»."
+],
+"Richiedente": [
+"Applicant",
+"Demandeur",
+"Solicitante"
+],
+"Immobile": [
+"Building",
+"Bâtiment",
+"Inmueble"
+],
+"Posizione": [
+"Location",
+"Position",
+"Ubicación"
+],
+"Nome e cognome": [
+"Name and surname",
+"Prénom et nom",
+"Nombre y apellidos"
+],
+"Nato/a a": [
+"Born in",
+"Né(e) à",
+"Nacido/a en"
+],
+"In qualità di": [
+"As",
+"En qualité de",
+"En calidad de"
+],
+"Frazione/località": [
+"Hamlet/locality",
+"Hameau/lieu-dit",
+"Pedanía/localidad"
+],
+"Denominazione": [
+"Building name",
+"Dénomination",
+"Denominación"
+],
+"Evento": [
+"Event",
+"Événement",
+"Evento"
+],
+"Coordinate": [
+"Coordinates",
+"Coordonnées",
+"Coordenadas"
+],
+"non indicata": [
+"not set",
+"non indiquée",
+"no indicada"
+],
+"Composto da": [
+"Consists of",
+"Composé de",
+"Compuesto por"
+],
+"Attualmente utilizzata": [
+"Currently in use",
+"Actuellement utilisé",
+"En uso actualmente"
+],
+"Residente nell’immobile": [
+"Resident in the building",
+"Résident dans le bâtiment",
+"Reside en el inmueble"
+],
+"Abitazione principale": [
+"Main residence",
+"Résidence principale",
+"Vivienda habitual"
+],
+"Più eventi / non so": [
+"Several events / I don’t know",
+"Plusieurs événements / je ne sais pas",
+"Varios eventos / no lo sé"
+],
+"Numero di pratica": [
+"Request number",
+"Numéro de dossier",
+"Número de expediente"
+],
+"Cosa fare adesso": [
+"What to do now",
+"Que faire maintenant",
+"Qué hacer ahora"
+],
+"Conserva questi riferimenti: ti abbiamo inviato una ricevuta via email con gli stessi dati.": [
+"Keep these references: we have sent you a receipt by email with the same details.",
+"Conservez ces références : nous vous avons envoyé un accusé de réception par e-mail avec les mêmes données.",
+"Conserve estas referencias: le hemos enviado un justificante por correo con los mismos datos."
+],
+"Presentati al Centro Operativo Comunale con un documento d’identità: l’operatore stamperà l’istanza e te la farà firmare.": [
+"Go to the Municipal Operations Centre with an identity document: the operator will print the request and ask you to sign it.",
+"Présentez-vous au Centre opérationnel communal avec une pièce d’identité : l’opérateur imprimera la demande et vous la fera signer.",
+"Acuda al Centro Operativo Municipal con un documento de identidad: el operador imprimirá la solicitud y se la hará firmar."
+],
+"Quando il C.O.C. avrà validato la domanda riceverai via email la copia ufficiale del Modello IPP.": [
+"Once the C.O.C. has validated the request, you will receive the official copy of the IPP form by email.",
+"Une fois la demande validée par le C.O.C., vous recevrez par e-mail la copie officielle du formulaire IPP.",
+"Cuando el C.O.C. haya validado la solicitud recibirá por correo la copia oficial del formulario IPP."
+],
+"La squadra tecnica ti chiamerà al numero indicato per concordare il sopralluogo.": [
+"The technical team will call you on the number given to arrange the inspection.",
+"L’équipe technique vous appellera au numéro indiqué pour convenir de l’inspection.",
+"El equipo técnico le llamará al número indicado para acordar la inspección."
+],
+"Scarica il PDF dell’istanza": [
+"Download the request PDF",
+"Télécharger le PDF de la demande",
+"Descargar el PDF de la solicitud"
+],
+"Compila un’altra istanza": [
+"Fill in another request",
+"Remplir une autre demande",
+"Rellenar otra solicitud"
+],
+"Codice a barre del Submission ID": [
+"Barcode of the Submission ID",
+"Code-barres du Submission ID",
+"Código de barras del Submission ID"
+],
+"Terremoto (Sisma)": [
+"Earthquake",
+"Tremblement de terre (séisme)",
+"Terremoto (sismo)"
+],
+"Alluvione / Esondazione": [
+"Flood / Overflow",
+"Inondation / Débordement",
+"Inundación / Desbordamiento"
+],
+"Tromba d’aria / Vento forte": [
+"Tornado / Strong wind",
+"Tornade / Vent violent",
+"Tornado / Viento fuerte"
+],
+"Frana / Dissesto idrogeologico": [
+"Landslide / Hydrogeological instability",
+"Glissement de terrain / Instabilité hydrogéologique",
+"Deslizamiento / Inestabilidad hidrogeológica"
+],
+"Altro evento calamitoso": [
+"Other disaster",
+"Autre catastrophe",
+"Otra catástrofe"
+],
+"Riprova a caricare gli eventi": [
+"Try loading the events again",
+"Réessayer de charger les événements",
+"Volver a cargar los eventos"
+],
+"Codice calcolato: verifica che coincida con la tua tessera sanitaria. In rari casi (omocodia) il codice reale è diverso.": [
+"Code calculated: check that it matches your health card. In rare cases (omocodia) the real code is different.",
+"Code calculé : vérifiez qu’il correspond à votre carte sanitaire. Dans de rares cas (omocodia), le code réel est différent.",
+"Código calculado: compruebe que coincida con su tarjeta sanitaria. En casos raros (omocodia) el código real es distinto."
+],
+"Per chi è nato all’estero il calcolo non è disponibile: copia il codice dalla tessera sanitaria.": [
+"For people born abroad the calculation is not available: copy the code from your health card.",
+"Pour les personnes nées à l’étranger, le calcul n’est pas disponible : recopiez le code de votre carte sanitaire.",
+"Para quienes nacieron en el extranjero el cálculo no está disponible: copie el código de la tarjeta sanitaria."
+],
+"Comune di nascita non trovato tra quelli attuali (può succedere se nel frattempo è stato unito ad altri o ha cambiato nome): copia il codice dalla tessera sanitaria.": [
+"Municipality of birth not found among current ones (this can happen if it has since merged or changed name): copy the code from your health card.",
+"Commune de naissance introuvable parmi les communes actuelles (cela peut arriver si elle a fusionné ou changé de nom) : recopiez le code de votre carte sanitaire.",
+"Municipio de nacimiento no encontrado entre los actuales (puede ocurrir si se ha fusionado o cambiado de nombre): copie el código de la tarjeta sanitaria."
+],
+"Serve per calcolare il codice fiscale": [
+"Needed to calculate the tax code",
+"Nécessaire pour calculer le code fiscal",
+"Necesario para calcular el código fiscal"
+],
+"Indica il sesso per calcolare il codice fiscale": [
+"Select your sex to calculate the tax code",
+"Indiquez votre sexe pour calculer le code fiscal",
+"Indique el sexo para calcular el código fiscal"
+],
+"Campo obbligatorio": [
+"Required field",
+"Champ obligatoire",
+"Campo obligatorio"
+],
+"Codice fiscale non valido": [
+"Invalid tax code",
+"Code fiscal non valide",
+"Código fiscal no válido"
+],
+"Codice fiscale non valido: controlla i caratteri": [
+"Invalid tax code: check the characters",
+"Code fiscal non valide : vérifiez les caractères",
+"Código fiscal no válido: revise los caracteres"
+],
+"Il codice fiscale non corrisponde alla data di nascita indicata": [
+"The tax code does not match the date of birth given",
+"Le code fiscal ne correspond pas à la date de naissance indiquée",
+"El código fiscal no corresponde a la fecha de nacimiento indicada"
+],
+"Conferma che il segnaposto indica l’edificio": [
+"Confirm that the marker shows the building",
+"Confirmez que le repère indique le bâtiment",
+"Confirme que el marcador indica el edificio"
+],
+"Il CAP è composto da 5 cifre": [
+"The postcode has 5 digits",
+"Le code postal comporte 5 chiffres",
+"El código postal tiene 5 cifras"
+],
+"Indica almeno un numero di telefono: servirà alla squadra per contattarti": [
+"Give at least one phone number: the team will need it to contact you",
+"Indiquez au moins un numéro de téléphone : l’équipe en aura besoin pour vous contacter",
+"Indique al menos un número de teléfono: el equipo lo necesitará para contactarle"
+],
+"Indica il civico (scrivi SNC se non presente)": [
+"Give the house number (write SNC if there is none)",
+"Indiquez le numéro (écrivez SNC s’il n’y en a pas)",
+"Indique el número (escriba SNC si no tiene)"
+],
+"Indica il numero di componenti del nucleo familiare": [
+"Give the number of people in your household",
+"Indiquez le nombre de membres du foyer",
+"Indique el número de miembros de la unidad familiar"
+],
+"Indirizzo email non valido": [
+"Invalid email address",
+"Adresse e-mail non valide",
+"Dirección de correo no válida"
+],
+"La posizione indicata è fuori dal territorio nazionale": [
+"The location is outside Italy",
+"La position indiquée est hors du territoire national",
+"La ubicación indicada está fuera del territorio nacional"
+],
+"Max 2 caratteri": [
+"Max 2 characters",
+"2 caractères max.",
+"Máx. 2 caracteres"
+],
+"Numero da 1 a 99": [
+"Number from 1 to 99",
+"Nombre de 1 à 99",
+"Número de 1 a 99"
+],
+"Numero non valido": [
+"Invalid number",
+"Numéro non valide",
+"Número no válido"
+],
+"Posiziona il segnaposto sull’edificio": [
+"Place the marker on the building",
+"Placez le repère sur le bâtiment",
+"Coloque el marcador sobre el edificio"
+],
+"Sigla di 2 lettere (es. PG)": [
+"2-letter code (e.g. PG)",
+"Sigle de 2 lettres (ex. PG)",
+"Sigla de 2 letras (p. ej. PG)"
+],
+"Specifica il tipo di manufatto": [
+"Specify the type of structure",
+"Précisez le type d’ouvrage",
+"Especifique el tipo de construcción"
+],
+"Specifica in che qualità presenti l’istanza": [
+"Specify in what capacity you are submitting the request",
+"Précisez en quelle qualité vous présentez la demande",
+"Especifique en qué calidad presenta la solicitud"
+],
+"Specifica l’uso prevalente": [
+"Specify the main use",
+"Précisez l’usage principal",
+"Especifique el uso principal"
+],
+"Valore non ammesso": [
+"Value not allowed",
+"Valeur non autorisée",
+"Valor no permitido"
+],
+"È necessario prendere visione dell’informativa": [
+"You must read the privacy notice",
+"Vous devez prendre connaissance de l’information",
+"Es necesario leer la información sobre privacidad"
+],
+"Data non valida": [
+"Invalid date",
+"Date non valide",
+"Fecha no válida"
+],
+"Le due email non coincidono": [
+"The two email addresses do not match",
+"Les deux adresses e-mail ne correspondent pas",
+"Las dos direcciones de correo no coinciden"
+],
+"Verifica l’email con il codice prima di proseguire": [
+"Verify your email with the code before continuing",
+"Vérifiez l’e-mail avec le code avant de continuer",
+"Verifique el correo con el código antes de continuar"
+],
+"Premi “Inviami il codice” per verificare l’indirizzo": [
+"Press “Send me the code” to verify the address",
+"Appuyez sur « Envoyez-moi le code » pour vérifier l’adresse",
+"Pulse «Envíenme el código» para verificar la dirección"
+],
+"Il codice è di 6 cifre": [
+"The code has 6 digits",
+"Le code comporte 6 chiffres",
+"El código tiene 6 cifras"
+],
+"Scegli l’evento a cui si riferiscono i danni": [
+"Choose the event the damage refers to",
+"Choisissez l’événement auquel se rapportent les dommages",
+"Elija el evento al que se refieren los daños"
+],
+"Non è stato possibile caricare l’elenco degli eventi: controlla la connessione e premi “Riprova”.": [
+"The list of events could not be loaded: check your connection and press “Try again”.",
+"La liste des événements n’a pas pu être chargée : vérifiez la connexion et appuyez sur « Réessayer ».",
+"No se ha podido cargar la lista de eventos: compruebe la conexión y pulse «Reintentar»."
+],
+"Il servizio non risponde. Controlla la connessione e riprova.": [
+"The service is not responding. Check your connection and try again.",
+"Le service ne répond pas. Vérifiez la connexion et réessayez.",
+"El servicio no responde. Compruebe la conexión e inténtelo de nuevo."
+],
+"Connessione non riuscita. Controlla la rete e riprova.": [
+"Connection failed. Check your network and try again.",
+"Échec de la connexion. Vérifiez le réseau et réessayez.",
+"No se ha podido conectar. Compruebe la red e inténtelo de nuevo."
+],
+"Il servizio non è ancora configurato (URL del webhook mancante).": [
+"The service is not configured yet.",
+"Le service n’est pas encore configuré.",
+"El servicio aún no está configurado."
+],
+"Componente PDF non caricato: ricarica la pagina.": [
+"PDF component not loaded: reload the page.",
+"Composant PDF non chargé : rechargez la page.",
+"Componente PDF no cargado: vuelva a cargar la página."
+],
+"Invio non riuscito.": [
+"Submission failed.",
+"Échec de l’envoi.",
+"No se ha podido enviar."
+],
+"Invio non riuscito. Riprova.": [
+"Submission failed. Try again.",
+"Échec de l’envoi. Réessayez.",
+"No se ha podido enviar. Inténtelo de nuevo."
+],
+"Codice non corretto.": [
+"Incorrect code.",
+"Code incorrect.",
+"Código incorrecto."
+],
+"Codice scaduto o mai richiesto. Richiedine uno nuovo.": [
+"Code expired or never requested. Request a new one.",
+"Code expiré ou jamais demandé. Demandez-en un nouveau.",
+"Código caducado o nunca solicitado. Solicite uno nuevo."
+],
+"Hai richiesto troppi codici. Attendi un’ora e riprova.": [
+"You have requested too many codes. Wait an hour and try again.",
+"Vous avez demandé trop de codes. Attendez une heure et réessayez.",
+"Ha solicitado demasiados códigos. Espere una hora e inténtelo de nuevo."
+],
+"Troppi tentativi errati. Richiedi un nuovo codice.": [
+"Too many wrong attempts. Request a new code.",
+"Trop de tentatives erronées. Demandez un nouveau code.",
+"Demasiados intentos erróneos. Solicite un código nuevo."
+],
+"Il servizio email è temporaneamente sovraccarico. Riprova più tardi o contatta il C.O.C.": [
+"The email service is temporarily overloaded. Try again later or contact the C.O.C.",
+"Le service e-mail est temporairement surchargé. Réessayez plus tard ou contactez le C.O.C.",
+"El servicio de correo está saturado temporalmente. Inténtelo más tarde o contacte con el C.O.C."
+],
+"La verifica dell’email è scaduta. Ricarica la pagina e verifica di nuovo l’indirizzo.": [
+"The email verification has expired. Reload the page and verify the address again.",
+"La vérification de l’e-mail a expiré. Rechargez la page et vérifiez de nouveau l’adresse.",
+"La verificación del correo ha caducado. Vuelva a cargar la página y verifique de nuevo la dirección."
+],
+"L’evento di riferimento non è più tra quelli attivi. Torna al passo “L’immobile” e sceglilo di nuovo.": [
+"The selected event is no longer active. Go back to the “The building” step and choose it again.",
+"L’événement choisi n’est plus actif. Revenez à l’étape « Le bâtiment » et choisissez-le à nouveau.",
+"El evento elegido ya no está activo. Vuelva al paso «El inmueble» y elíjalo de nuevo."
+],
+"Indica l’evento a cui si riferiscono i danni (passo “L’immobile”).": [
+"Choose the event the damage refers to (step “The building”).",
+"Indiquez l’événement auquel se rapportent les dommages (étape « Le bâtiment »).",
+"Indique el evento al que se refieren los daños (paso «El inmueble»)."
+],
+"Errore interno del servizio. Riprova tra qualche minuto.": [
+"Internal service error. Try again in a few minutes.",
+"Erreur interne du service. Réessayez dans quelques minutes.",
+"Error interno del servicio. Inténtelo de nuevo dentro de unos minutos."
+]
+};
+  const MODELLI = [
+[
+"^Passo (\\d+) di (\\d+)$",
+"Step {1} of {2}",
+"Étape {1} sur {2}",
+"Paso {1} de {2}"
+],
+[
+"^Posizione: lat ([-\\d.]+), lon ([-\\d.]+)\\. Se non è esatta, trascina il segnaposto\\.$",
+"Location: lat {1}, lon {2}. If it is not exact, drag the marker.",
+"Position : lat {1}, lon {2}. Si elle n’est pas exacte, faites glisser le repère.",
+"Ubicación: lat {1}, lon {2}. Si no es exacta, arrastre el marcador."
+],
+[
+"^Posizione: lat ([-\\d.]+), lon ([-\\d.]+)\\. Se non è esatta, trascina il segnaposto\\. Precisione circa (\\d+) m\\.$",
+"Location: lat {1}, lon {2}. If it is not exact, drag the marker. Accuracy about {3} m.",
+"Position : lat {1}, lon {2}. Si elle n’est pas exacte, faites glisser le repère. Précision d’environ {3} m.",
+"Ubicación: lat {1}, lon {2}. Si no es exacta, arrastre el marcador. Precisión de unos {3} m."
+],
+[
+"^Grazie (.*)\\. La tua istanza è stata registrata e ti abbiamo inviato una ricevuta a (.*)\\.$",
+"Thank you {1}. Your request has been registered and we have sent a receipt to {2}.",
+"Merci {1}. Votre demande a été enregistrée et nous avons envoyé un accusé de réception à {2}.",
+"Gracias, {1}. Su solicitud ha sido registrada y le hemos enviado un justificante a {2}."
+],
+[
+"^(.+) del (\\d\\d/\\d\\d/\\d{4}) ore (\\d\\d:\\d\\d) – (.+)$",
+"{t1} of {2} at {3} – {4}",
+"{t1} du {2} à {3} – {4}",
+"{t1} del {2} a las {3} – {4}"
+],
+[
+"^(.+) del (\\d\\d/\\d\\d/\\d{4}) ore (\\d\\d:\\d\\d)$",
+"{t1} of {2} at {3}",
+"{t1} du {2} à {3}",
+"{t1} del {2} a las {3}"
+],
+[
+"^(.+) del (\\d\\d/\\d\\d/\\d{4}) – (.+)$",
+"{t1} of {2} – {3}",
+"{t1} du {2} – {3}",
+"{t1} del {2} – {3}"
+],
+[
+"^(.+) del (\\d\\d/\\d\\d/\\d{4})$",
+"{t1} of {2}",
+"{t1} du {2}",
+"{t1} del {2}"
+],
+[
+"^Evento di riferimento: (.+)$",
+"Event concerned: {t1}",
+"Événement concerné : {t1}",
+"Evento de referencia: {t1}"
+],
+[
+"^(.+): (\\d+) eventi in corso$",
+"{t1}: {2} events in progress",
+"{t1} : {2} événements en cours",
+"{t1}: {2} eventos en curso"
+],
+[
+"^(.*) \\((\\w*)\\) il (\\d\\d/\\d\\d/\\d{4})$",
+"{1} ({2}) on {3}",
+"{1} ({2}) le {3}",
+"{1} ({2}) el {3}"
+],
+[
+"^(.+) \\(nucleo di (\\d+)\\)$",
+"{t1} (household of {2})",
+"{t1} (foyer de {2})",
+"{t1} (unidad familiar de {2})"
+],
+[
+"^Solo cifre \\(max (\\d+)\\)$",
+"Digits only (max {1})",
+"Chiffres uniquement ({1} max.)",
+"Solo cifras (máx. {1})"
+],
+[
+"^(.*) Puoi premere di nuovo “Invia l’istanza”: non verrà registrata due volte\\.$",
+"{t1} You can press “Submit the request” again: it will not be registered twice.",
+"{t1} Vous pouvez appuyer à nouveau sur « Envoyer la demande » : elle ne sera pas enregistrée deux fois.",
+"{t1} Puede pulsar de nuevo «Enviar la solicitud»: no se registrará dos veces."
+],
+[
+"^Dati non validi: (.+)$",
+"Invalid data: {1}",
+"Données non valides : {1}",
+"Datos no válidos: {1}"
+],
+[
+"^(Altro|Altri manufatti non ordinari): (.+)$",
+"{t1}: {2}",
+"{t1} : {2}",
+"{t1}: {2}"
+]
+];
+  const RE = MODELLI.map((m) => [new RegExp(m[0]), m.slice(1)]);
+  const ATTRIBUTI = ['placeholder', 'aria-label', 'title', 'alt'];
+  const SALTA = 'script, style, textarea, [data-noi18n], .leaflet-container';
+  const norm = (s) => s.replace(/\s+/g, ' ').trim();
+
+  let lingua = 'it';
+  function scegliIniziale() {
+    try { const q = new URLSearchParams(location.search).get('lang'); if (q && LINGUE[q]) return q; } catch (e) {}
+    try { const s = localStorage.getItem('ipp-lingua'); if (s && LINGUE[s]) return s; } catch (e) {}
+    const nav = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'it']);
+    for (const l of nav) { const k = String(l).slice(0, 2).toLowerCase(); if (LINGUE[k]) return k; }
+    return 'it';
+  }
+
+  function traduciNucleo(s) {
+    if (lingua === 'it') return s;
+    const c = COLONNA[lingua];
+    if (Object.prototype.hasOwnProperty.call(DIZIONARIO, s)) return DIZIONARIO[s][c];
+    for (const [re, modelli] of RE) {
+      const m = s.match(re);
+      if (!m) continue;
+      return modelli[c].replace(/\{(t?)(\d+)\}/g, (x, t, n) => {
+        const g = m[+n] || '';
+        return t ? traduci(g) : g;
+      });
+    }
+    return null;
+  }
+  // traduce una frase italiana nella lingua scelta (lascia com'è ciò che non conosce)
+  function traduci(s) {
+    if (lingua === 'it' || s == null) return s;
+    const m = String(s).match(/^(\s*)([\s\S]*?)(\s*)$/);
+    const nucleo = norm(m[2]);
+    if (!nucleo) return s;
+    const t = traduciNucleo(nucleo);
+    return t == null ? s : m[1] + t + m[3];
+  }
+  window.ippT = traduci;
+  window.ippLingua = () => lingua;
+  window.ippVoceLingua = () => LINGUE[lingua].voce;
+
+  // per ogni nodo ricordiamo il testo italiano e quello mostrato: così si può cambiare lingua più volte
+  const originali = new WeakMap();
+  function nodoTesto(n) {
+    let r = originali.get(n);
+    if (!r || n.data !== r.mostrato) r = { it: n.data };
+    r.mostrato = traduci(r.it);
+    originali.set(n, r);
+    if (n.data !== r.mostrato) n.data = r.mostrato;
+  }
+  function attributo(el, a) {
+    if (!el.hasAttribute(a)) return;
+    let mappa = originali.get(el); if (!mappa) { mappa = {}; originali.set(el, mappa); }
+    let r = mappa[a]; const v = el.getAttribute(a);
+    if (!r || v !== r.mostrato) r = { it: v };
+    r.mostrato = traduci(r.it); mappa[a] = r;
+    if (v !== r.mostrato) el.setAttribute(a, r.mostrato);
+  }
+  const daSaltare = (el) => !!(el && el.closest && el.closest(SALTA));
+  function percorri(radice) {
+    if (radice.nodeType === 3) { if (!daSaltare(radice.parentElement)) nodoTesto(radice); return; }
+    if (radice.nodeType !== 1 || daSaltare(radice)) return;
+    const w = document.createTreeWalker(radice, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.nodeType === 1 && n.matches(SALTA)) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+    });
+    let n = radice;
+    do {
+      if (n.nodeType === 3) { if (n.data.trim()) nodoTesto(n); }
+      else ATTRIBUTI.forEach((a) => attributo(n, a));
+    } while ((n = w.nextNode()));
+  }
+
+  const osservatore = new MutationObserver((lista) => {
+    lista.forEach((m) => {
+      if (m.type === 'childList') m.addedNodes.forEach(percorri);
+      else if (m.type === 'characterData') { if (!daSaltare(m.target.parentElement)) nodoTesto(m.target); }
+      else if (m.type === 'attributes' && !daSaltare(m.target)) attributo(m.target, m.attributeName);
+    });
+  });
+
+  function applica(l, salva) {
+    lingua = LINGUE[l] ? l : 'it';
+    document.documentElement.lang = lingua;
+    document.title = traduci(LINGUE.it.titolo);
+    const sel = document.getElementById('lingua'); if (sel) sel.value = lingua;
+    const nota = document.getElementById('linguaNota');
+    if (nota) { nota.textContent = LINGUE[lingua].nota || ''; nota.hidden = !LINGUE[lingua].nota; }
+    osservatore.disconnect();
+    percorri(document.body);
+    osservatore.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRIBUTI });
+    if (salva) { try { localStorage.setItem('ipp-lingua', lingua); } catch (e) {} }
+    window.dispatchEvent(new Event('ipp-lingua'));
+  }
+
+  const sel = document.getElementById('lingua');
+  if (sel) {
+    Object.keys(LINGUE).forEach((k) => sel.add(new Option(LINGUE[k].nome, k)));
+    sel.addEventListener('change', () => applica(sel.value, true));
+  }
+  applica(scegliIniziale(), false);
 })();
 </script>
 </body>
